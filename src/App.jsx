@@ -10,7 +10,7 @@ const App = () => {
       }}
     >
       <header>
-        <h1>Bet Bot</h1>
+        <h1>Dan Bet Bot</h1>
         <p>Foundation established. Ready for feature implementation.</p>
       </header>
     </main>

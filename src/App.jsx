@@ -1,12 +1,20 @@
-import React from 'react';
+import React from "react";
 
-function App() {
+const App = () => {
   return (
-    <div style={{ textAlign: 'center', marginTop: '50px', fontFamily: 'sans-serif' }}>
-      <h1>Project Base Ready</h1>
-      <p>Your web app is ready for development and Netlify deployment.</p>
-    </div>
+    <main
+      style={{
+        textAlign: "center",
+        marginTop: "50px",
+        fontFamily: "sans-serif",
+      }}
+    >
+      <header>
+        <h1>Bet Bot</h1>
+        <p>Foundation established. Ready for feature implementation.</p>
+      </header>
+    </main>
   );
-}
+};
 
 export default App;

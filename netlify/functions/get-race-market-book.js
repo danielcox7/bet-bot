@@ -1,7 +1,6 @@
-export const handler = async (event) => {
-  const APP_KEY = process.env.BETFAIR_APP_KEY;
-  const SESSION_TOKEN = process.env.BETFAIR_SESSION_TOKEN;
+import { getBetfairSession } from "./betfair-auth.js";
 
+export const handler = async (event) => {
   // Ensure the request method is POST
   if (event.httpMethod !== "POST") {
     return {
@@ -34,51 +33,15 @@ export const handler = async (event) => {
     };
   }
 
-  // Return mock data if keys are missing for development/testing
-  if (!APP_KEY || !SESSION_TOKEN) {
-    console.warn(
-      "BETFAIR_APP_KEY or BETFAIR_SESSION_TOKEN missing. Returning mock market book data.",
-    );
-    const mockMarketBook = {
-      marketId: marketId,
-      isMarketDataDelayed: true,
-      status: "OPEN",
-      betDelay: 0,
-      runners: [
-        {
-          selectionId: 1,
-          lastPriceTraded: 5.0,
-          totalMatched: 1000,
-          ex: {
-            availableToBack: [{ price: 5.0, size: 100 }],
-            availableToLay: [{ price: 5.2, size: 50 }],
-          },
-        },
-        {
-          selectionId: 2,
-          lastPriceTraded: 3.5,
-          totalMatched: 1500,
-          ex: {
-            availableToBack: [{ price: 3.5, size: 200 }],
-            availableToLay: [{ price: 3.6, size: 80 }],
-          },
-        },
-        {
-          selectionId: 3,
-          lastPriceTraded: 8.0,
-          totalMatched: 500,
-          ex: {
-            availableToBack: [{ price: 8.0, size: 50 }],
-            availableToLay: [{ price: 8.4, size: 20 }],
-          },
-        },
-      ],
-    };
-
+  let sessionToken, appKey;
+  try {
+    ({ sessionToken, appKey } = await getBetfairSession());
+  } catch (authError) {
+    console.error("Betfair authentication failed:", authError.message);
     return {
-      statusCode: 200,
+      statusCode: 500,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify([mockMarketBook]), // listMarketBook returns an array
+      body: JSON.stringify({ error: `Authentication failed: ${authError.message}` }),
     };
   }
 
@@ -88,25 +51,25 @@ export const handler = async (event) => {
       {
         method: "POST",
         headers: {
-          "X-Application": APP_KEY,
-          "X-Authentication": SESSION_TOKEN,
+          "X-Application": appKey,
+          "X-Authentication": sessionToken,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           marketIds: [marketId],
-          priceProjection: { priceData: ["EX_BEST_OFFERS", "EX_TRADED"] }, // Request best offers and traded prices
+          priceProjection: { priceData: ["EX_BEST_OFFERS", "EX_TRADED"] },
         }),
-      },
+      }
     );
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error(
         `Betfair listMarketBook API call failed for marketId ${marketId}:`,
-        errorText,
+        errorText
       );
       throw new Error(
-        `Betfair API responded with ${response.status}: ${errorText}`,
+        `Betfair API responded with ${response.status}: ${errorText}`
       );
     }
 

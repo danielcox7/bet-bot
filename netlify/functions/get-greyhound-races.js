@@ -1,45 +1,21 @@
+import { getBetfairSession } from "./betfair-auth.js";
+
 export const handler = async (event) => {
-  console.log("Netlify function 'get-greyhound-races' invoked."); // Added for debugging
-  const APP_KEY = process.env.BETFAIR_APP_KEY;
-  const SESSION_TOKEN = process.env.BETFAIR_SESSION_TOKEN;
+  console.log("Netlify function 'get-greyhound-races' invoked.");
 
-  // Mock data for development when keys are missing
-  if (!APP_KEY || !SESSION_TOKEN) {
-    console.warn("Betfair keys missing. Returning mock race data.");
-    const mockRaces = [
-      // Simplified mock data
-      {
-        id: "1.240123456",
-        time: "14:10",
-        venue: "Hove",
-        name: "600m Grad",
-        runners: [{ selectionId: 1, runnerName: "Swift Gilly" }],
-      },
-      {
-        id: "1.240123457",
-        time: "14:30",
-        venue: "Monmore",
-        name: "480m OR",
-        runners: [{ selectionId: 4, runnerName: "Vixons Pride" }],
-      },
-      {
-        id: "1.240123458",
-        time: "14:50",
-        venue: "Romford",
-        name: "400m Grad",
-        runners: [{ selectionId: 6, runnerName: "Coolavanny Aunty" }],
-      },
-    ]; // Keep runners for basic display, but no form-specific data
-
+  let sessionToken, appKey;
+  try {
+    ({ sessionToken, appKey } = await getBetfairSession());
+  } catch (authError) {
+    console.error("Betfair authentication failed:", authError.message);
     return {
-      statusCode: 200,
+      statusCode: 500,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(mockRaces),
+      body: JSON.stringify({ error: `Authentication failed: ${authError.message}` }),
     };
   }
 
   try {
-    // Get the start and end of today for the filter
     const now = new Date();
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
@@ -49,8 +25,8 @@ export const handler = async (event) => {
       {
         method: "POST",
         headers: {
-          "X-Application": APP_KEY,
-          "X-Authentication": SESSION_TOKEN,
+          "X-Application": appKey,
+          "X-Authentication": sessionToken,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -70,16 +46,16 @@ export const handler = async (event) => {
             "RUNNER_DESCRIPTION",
           ],
         }),
-      },
+      }
     );
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error(
-        `Betfair listMarketCatalogue API call failed: ${response.status} - ${errorText}`,
+        `Betfair listMarketCatalogue API call failed: ${response.status} - ${errorText}`
       );
       throw new Error(
-        `Betfair API responded with ${response.status}: ${errorText}`,
+        `Betfair API responded with ${response.status}: ${errorText}`
       );
     }
 
@@ -87,9 +63,10 @@ export const handler = async (event) => {
 
     const races = data.map((m) => ({
       id: m.marketId,
-      time: new Date(m.marketStartTime).toLocaleTimeString([], {
+      time: new Date(m.marketStartTime).toLocaleTimeString("en-GB", {
         hour: "2-digit",
         minute: "2-digit",
+        timeZone: "Europe/London",
       }),
       venue: m.event.venue || m.event.name,
       name: m.marketName,
@@ -98,8 +75,9 @@ export const handler = async (event) => {
         runnerName: r.runnerName,
       })),
     }));
+
     console.log(
-      `[get-greyhound-races] Server: Returning ${races.length} races. Market IDs: ${races.map((r) => r.id).join(", ")}`,
+      `[get-greyhound-races] Returning ${races.length} races.`
     );
 
     return {
@@ -108,9 +86,10 @@ export const handler = async (event) => {
       body: JSON.stringify(races),
     };
   } catch (error) {
-    console.error("Error fetching greyhound races:", error); // Added for debugging
+    console.error("Error fetching greyhound races:", error);
     return {
       statusCode: 500,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ error: error.message }),
     };
   }

@@ -10,3 +10,6 @@
   port = 8888               # The port Netlify Dev will run on
   targetPort = 5173         # The default port your local development server (Vite) runs on
   functions = "netlify/functions" # The directory where your Netlify Functions are located
+
+[functions]
+  region = "eu-west-1"

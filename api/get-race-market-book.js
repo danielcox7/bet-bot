@@ -1,32 +1,22 @@
 import { getBetfairSession, invalidateSession } from "./betfair-auth.js";
 
-export const handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Method Not Allowed. Only POST requests are accepted." }),
-    };
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method Not Allowed. Only POST requests are accepted." });
   }
 
-  let marketId;
-  try {
-    const body = JSON.parse(event.body);
-    marketId = body.marketId;
-  } catch (parseError) {
-    return {
-      statusCode: 400,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Invalid JSON body provided." }),
-    };
+  // Vercel automatically parses JSON bodies if the content-type is application/json
+  let marketId = req.body?.marketId;
+  
+  // fallback for string bodies just in case
+  if (!marketId && typeof req.body === 'string') {
+     try {
+       marketId = JSON.parse(req.body).marketId;
+     } catch(e) {}
   }
 
   if (!marketId) {
-    return {
-      statusCode: 400,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Missing marketId in request body." }),
-    };
+    return res.status(400).json({ error: "Missing marketId in request body." });
   }
 
   let sessionToken, appKey;
@@ -34,11 +24,7 @@ export const handler = async (event) => {
     ({ sessionToken, appKey } = await getBetfairSession());
   } catch (authError) {
     console.error("Betfair authentication failed:", authError.message);
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: `Authentication failed: ${authError.message}` }),
-    };
+    return res.status(500).json({ error: `Authentication failed: ${authError.message}` });
   }
 
   try {
@@ -71,17 +57,9 @@ export const handler = async (event) => {
 
     const data = await response.json();
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    };
+    return res.status(200).json(data);
   } catch (error) {
     console.error("Error fetching market book data:", error);
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: error.message }),
-    };
+    return res.status(500).json({ error: error.message });
   }
-};
+}

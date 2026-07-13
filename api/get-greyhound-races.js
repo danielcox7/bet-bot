@@ -1,18 +1,14 @@
 import { getBetfairSession, invalidateSession } from "./betfair-auth.js";
 
-export const handler = async (event) => {
-  console.log("Netlify function 'get-greyhound-races' invoked.");
+export default async function handler(req, res) {
+  console.log("Vercel function 'get-greyhound-races' invoked.");
 
   let sessionToken, appKey;
   try {
     ({ sessionToken, appKey } = await getBetfairSession());
   } catch (authError) {
     console.error("Betfair authentication failed:", authError.message);
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: `Authentication failed: ${authError.message}` }),
-    };
+    return res.status(500).json({ error: `Authentication failed: ${authError.message}` });
   }
 
   try {
@@ -75,17 +71,9 @@ export const handler = async (event) => {
 
     console.log(`[get-greyhound-races] Returning ${races.length} races.`);
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(races),
-    };
+    return res.status(200).json(races);
   } catch (error) {
     console.error("Error fetching greyhound races:", error);
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: error.message }),
-    };
+    return res.status(500).json({ error: error.message });
   }
-};
+}

@@ -3,7 +3,7 @@
  */
 
 export const getGreyhoundRaces = async () => {
-  const response = await fetch("/.netlify/functions/get-greyhound-races");
+  const response = await fetch("/api/get-greyhound-races");
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.error || "Failed to fetch races");
@@ -12,7 +12,7 @@ export const getGreyhoundRaces = async () => {
 };
 
 export const getMarketBook = async (marketId) => {
-  const response = await fetch("/.netlify/functions/get-race-market-book", {
+  const response = await fetch("/api/get-race-market-book", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ marketId }),

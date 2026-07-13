@@ -1,4 +1,4 @@
-import { getBetfairSession } from "./betfair-auth.js";
+import { getBetfairSession, invalidateSession } from "./betfair-auth.js";
 
 export const handler = async (event) => {
   console.log("Netlify function 'get-greyhound-races' invoked.");
@@ -31,7 +31,7 @@ export const handler = async (event) => {
         },
         body: JSON.stringify({
           filter: {
-            eventTypeIds: ["4339"], // Greyhound Racing
+            eventTypeIds: ["4339"],
             marketStartTime: {
               from: now.toISOString(),
               to: endOfDay.toISOString(),
@@ -40,23 +40,20 @@ export const handler = async (event) => {
             marketCountries: ["GB"],
           },
           maxResults: 200,
-          marketProjection: [
-            "EVENT",
-            "MARKET_START_TIME",
-            "RUNNER_DESCRIPTION",
-          ],
+          marketProjection: ["EVENT", "MARKET_START_TIME", "RUNNER_DESCRIPTION"],
         }),
       }
     );
 
+    // If Betfair says the token is invalid, clear cache so next call re-logs in
+    if (response.status === 401 || response.status === 403) {
+      invalidateSession();
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(
-        `Betfair listMarketCatalogue API call failed: ${response.status} - ${errorText}`
-      );
-      throw new Error(
-        `Betfair API responded with ${response.status}: ${errorText}`
-      );
+      console.error(`Betfair listMarketCatalogue failed: ${response.status} - ${errorText}`);
+      throw new Error(`Betfair API responded with ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
@@ -76,9 +73,7 @@ export const handler = async (event) => {
       })),
     }));
 
-    console.log(
-      `[get-greyhound-races] Returning ${races.length} races.`
-    );
+    console.log(`[get-greyhound-races] Returning ${races.length} races.`);
 
     return {
       statusCode: 200,

@@ -1,18 +1,14 @@
-import { getBetfairSession } from "./betfair-auth.js";
+import { getBetfairSession, invalidateSession } from "./betfair-auth.js";
 
 export const handler = async (event) => {
-  // Ensure the request method is POST
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        error: "Method Not Allowed. Only POST requests are accepted.",
-      }),
+      body: JSON.stringify({ error: "Method Not Allowed. Only POST requests are accepted." }),
     };
   }
 
-  // Parse the request body to get the marketId
   let marketId;
   try {
     const body = JSON.parse(event.body);
@@ -62,15 +58,15 @@ export const handler = async (event) => {
       }
     );
 
+    // If Betfair says the token is invalid, clear cache so next call re-logs in
+    if (response.status === 401 || response.status === 403) {
+      invalidateSession();
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(
-        `Betfair listMarketBook API call failed for marketId ${marketId}:`,
-        errorText
-      );
-      throw new Error(
-        `Betfair API responded with ${response.status}: ${errorText}`
-      );
+      console.error(`Betfair listMarketBook failed for ${marketId}:`, errorText);
+      throw new Error(`Betfair API responded with ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();

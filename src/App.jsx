@@ -186,7 +186,7 @@ useEffect(() => {
         console.error('Error checking pending alerts:', err);
       }
     });
-  }, 60000); // Poll every 60s — Betfair rate-limits logins if called too frequently
+  }, 5000); // Poll every 5s for live odds checking
   return () => clearInterval(intervalId);
 }, [qualifiedRaces, races]);
 const [selectedTrap, setSelectedTrap] = useState(() => {

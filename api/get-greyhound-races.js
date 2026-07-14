@@ -33,6 +33,7 @@ export default async function handler(req, res) {
               to: endOfDay.toISOString(),
             },
             marketTypeCodes: ["WIN"],
+            marketCountries: ["GB"],
           },
           maxResults: 200,
           marketProjection: ["EVENT", "MARKET_START_TIME", "RUNNER_DESCRIPTION"],

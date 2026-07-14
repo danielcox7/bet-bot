@@ -70,6 +70,19 @@ const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
   });
 
    const toggleQualified = async (raceId) => {
+     const isCurrentlyQualified = qualifiedRaces.includes(raceId);
+     
+     // 1. Toggle qualification state optimistically so UI updates instantly
+     if (isCurrentlyQualified) {
+       // Remove from qualified list
+       setQualifiedRaces((prev) => prev.filter((id) => id !== raceId));
+       return; // If we are just deselecting, no need to make network calls to check greens
+     } else {
+       // Add to qualified list
+       setQualifiedRaces((prev) => [...prev, raceId]);
+     }
+
+     // 2. Asynchronously check if the race is immediately "green" upon qualifying
      const race = races.find((r) => r.id === raceId);
      try {
        const market = await getMarketBook(raceId);
@@ -82,11 +95,10 @@ const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
          const sp = convertToDecimal(manualOdds[runner.selectionId]);
          const back = parseFloat(runner.ex?.availableToBack?.[0]?.price ?? 0);
          const diff = back - sp;
-         console.log(`Manual toggle – Runner ${runner.selectionId}: SP=${sp}, Back=${back}, Diff=${diff}`);
          if (sp !== null && back && diff >= 2) {
            isGreen = true;
            if (!qualifyingInfo) {
-             const staticInfo = race.runners?.find((r) => r.selectionId === runner.selectionId);
+             const staticInfo = race?.runners?.find((r) => r.selectionId === runner.selectionId);
              let dogName = staticInfo ? staticInfo.runnerName : `Dog ${runner.selectionId}`;
              let trapNumber = "—";
              const trapMatch = dogName.match(/^(\d+)\.\s+(.*)/);
@@ -99,24 +111,16 @@ const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
          }
        });
 
-          // Toggle qualification state
-          if (qualifiedRaces.includes(raceId)) {
-            // Remove from qualified list
-            setQualifiedRaces((prev) => prev.filter((id) => id !== raceId));
-          } else {
-            // Add to qualified list
-            setQualifiedRaces((prev) => [...prev, raceId]);
-            // Send immediate Telegram alert only when green
-            if (isGreen) {
-              let message = race
-                ? `✅ Qualified race (green) detected: ${race.name} at ${race.time} (${race.venue})`
-                : `✅ Race ID ${raceId} qualified (green)`;
-              if (qualifyingInfo) {
-                message += ` – Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}`;
-              }
-              await sendTelegramAlert(message);
-            }
-          }
+       // Send immediate Telegram alert only when green
+       if (isGreen) {
+         let message = race
+           ? `✅ Qualified race (green) detected: ${race.name} at ${race.time} (${race.venue})`
+           : `✅ Race ID ${raceId} qualified (green)`;
+         if (qualifyingInfo) {
+           message += ` – Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}`;
+         }
+         await sendTelegramAlert(message);
+       }
      } catch (err) {
        console.error('Error evaluating green criteria for manual qualification:', err);
      }
@@ -388,7 +392,10 @@ useEffect(() => {
                     })
                     .map((race) => (
                     <React.Fragment key={race.id}>
-                      <tr style={qualifiedRaces.includes(race.id) ? { ...styles.tableRow, ...styles.qualifiedRow } : styles.tableRow}>
+                      <tr 
+                        style={qualifiedRaces.includes(race.id) ? { ...styles.tableRow, ...styles.qualifiedRow, cursor: "pointer" } : { ...styles.tableRow, cursor: "pointer" }}
+                        onClick={() => toggleQualified(race.id)}
+                      >
                         <td style={{ ...styles.tableCell, fontWeight: "bold" }}>
                           {race.time}
                         </td>
@@ -398,22 +405,15 @@ useEffect(() => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <button
                               style={styles.button}
-                              onClick={() => handleMonitorClick(race.id)}
+                              onClick={(e) => {
+                                e.stopPropagation(); // prevent toggling qualification
+                                handleMonitorClick(race.id);
+                              }}
                             >
                               {monitoringMarketId === race.id
                                 ? "Close Monitor"
                                 : "Monitor"}
                             </button>
-                            <label style={styles.checkboxLabel} htmlFor={`qualified-${race.id}`}>
-                              <input
-                                id={`qualified-${race.id}`}
-                                type="checkbox"
-                                checked={qualifiedRaces.includes(race.id)}
-                                onChange={() => toggleQualified(race.id)}
-                                style={styles.checkbox}
-                              />
-                              Qualified
-                            </label>
                           </div>
                         </td>
                       </tr>
@@ -518,7 +518,7 @@ const styles = {
     alignItems: "center",
    },
    qualifiedRow: {
-     backgroundColor: "#e6f7ff",
+     backgroundColor: "#eafae8",
    },
   trackFilter: {
     padding: "6px 12px",

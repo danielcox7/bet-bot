@@ -277,7 +277,7 @@ useEffect(() => {
   };
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="app-container">
       <header style={styles.header}>
         <img src={logo} alt="Bet Bot Logo" style={styles.logo} />
         <p style={styles.status}>
@@ -295,7 +295,7 @@ useEffect(() => {
       </header>
 
       <main style={styles.content}>
-        <section style={styles.card}>
+        <section style={styles.card} className="app-card">
           <div style={styles.cardHeader}>
             <h2 style={styles.cardTitle}>Today's Races</h2>
           </div>
@@ -323,7 +323,7 @@ useEffect(() => {
               <option value="5">Trap 5</option>
               <option value="6">Trap 6</option>
             </select>
-                      <span style={styles.checkboxLabel}>
+            <span style={styles.checkboxLabel}>
               <input
                 type="checkbox"
                 checked={showQualifiedOnly}
@@ -338,100 +338,102 @@ useEffect(() => {
               Connecting to Betfair Exchange...
             </p>
           ) : races.length > 0 ? (
-            <table style={styles.table}>
-              <thead>
-                <tr style={styles.tableHeaderRow}>
-                  <th style={styles.tableHeader}>Time</th>
-                  <th style={styles.tableHeader}>Venue</th>
-                  <th style={styles.tableHeader}>Market</th>
-                  <th style={styles.tableHeader}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {races
-                    .filter((race) => {
-                      // basic filters
-                      if (selectedTrack !== "ALL" && race.venue !== selectedTrack) return false;
-                      if (showQualifiedOnly && !qualifiedRaces.includes(race.id)) return false;
-                      // time filter – exclude races that have already started/passed
-                      const now = new Date();
-                      const nowMins = now.getHours() * 60 + now.getMinutes();
-                      const m = race.time.match(/(\d+):(\d+)\s*([AP]M)?/i);
-                      if (!m) return true; // keep if format unknown
-                      let hour = parseInt(m[1], 10);
-                      const minute = parseInt(m[2], 10);
-                      const meridiem = m[3];
-                      if (meridiem) {
-                        const isPM = meridiem.toUpperCase() === "PM";
-                        if (hour === 12) hour = isPM ? 12 : 0;
-                        else if (isPM) hour += 12;
-                      }
-                      const raceMins = hour * 60 + minute;
-                      return raceMins >= nowMins;
+            <div className="table-wrapper" style={{ width: "100%", overflowX: "auto" }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr style={styles.tableHeaderRow}>
+                    <th style={styles.tableHeader}>Time</th>
+                    <th style={styles.tableHeader}>Venue</th>
+                    <th style={styles.tableHeader}>Market</th>
+                    <th style={styles.tableHeader}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {races
+                      .filter((race) => {
+                        // basic filters
+                        if (selectedTrack !== "ALL" && race.venue !== selectedTrack) return false;
+                        if (showQualifiedOnly && !qualifiedRaces.includes(race.id)) return false;
+                        // time filter – exclude races that have already started/passed
+                        const now = new Date();
+                        const nowMins = now.getHours() * 60 + now.getMinutes();
+                        const m = race.time.match(/(\d+):(\d+)\s*([AP]M)?/i);
+                        if (!m) return true; // keep if format unknown
+                        let hour = parseInt(m[1], 10);
+                        const minute = parseInt(m[2], 10);
+                        const meridiem = m[3];
+                        if (meridiem) {
+                          const isPM = meridiem.toUpperCase() === "PM";
+                          if (hour === 12) hour = isPM ? 12 : 0;
+                          else if (isPM) hour += 12;
+                        }
+                        const raceMins = hour * 60 + minute;
+                        return raceMins >= nowMins;
+                      })
+                    .sort((a, b) => {
+                      const parseTime = (t) => {
+                        const m = t.match(/(\d+):(\d+)\s*([AP]M)?/i);
+                        if (!m) return 0;
+                        let hour = parseInt(m[1], 10);
+                        const minute = parseInt(m[2], 10);
+                        const meridiem = m[3];
+                        if (meridiem) {
+                          const isPM = meridiem.toUpperCase() === 'PM';
+                          if (hour === 12) hour = isPM ? 12 : 0;
+                          else if (isPM) hour += 12;
+                        }
+                        return hour * 60 + minute;
+                      };
+                      return parseTime(a.time) - parseTime(b.time);
                     })
-                  .sort((a, b) => {
-                    const parseTime = (t) => {
-                      const m = t.match(/(\d+):(\d+)\s*([AP]M)?/i);
-                      if (!m) return 0;
-                      let hour = parseInt(m[1], 10);
-                      const minute = parseInt(m[2], 10);
-                      const meridiem = m[3];
-                      if (meridiem) {
-                        const isPM = meridiem.toUpperCase() === 'PM';
-                        if (hour === 12) hour = isPM ? 12 : 0;
-                        else if (isPM) hour += 12;
-                      }
-                      return hour * 60 + minute;
-                    };
-                    return parseTime(a.time) - parseTime(b.time);
-                  })
-                  .map((race) => (
-                  <React.Fragment key={race.id}>
-                    <tr style={qualifiedRaces.includes(race.id) ? { ...styles.tableRow, ...styles.qualifiedRow } : styles.tableRow}>
-                      <td style={{ ...styles.tableCell, fontWeight: "bold" }}>
-                        {race.time}
-                      </td>
-                      <td style={styles.tableCell}>{race.venue}</td>
-                      <td style={styles.tableCell}>{race.name}</td>
-                      <td style={styles.tableCell}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <button
-                            style={styles.button}
-                            onClick={() => handleMonitorClick(race.id)}
-                          >
-                            {monitoringMarketId === race.id
-                              ? "Close Monitor"
-                              : "Monitor"}
-                          </button>
-                          <label style={styles.checkboxLabel} htmlFor={`qualified-${race.id}`}>
-                            <input
-                              id={`qualified-${race.id}`}
-                              type="checkbox"
-                              checked={qualifiedRaces.includes(race.id)}
-                              onChange={() => toggleQualified(race.id)}
-                              style={styles.checkbox}
-                            />
-                            Qualified
-                          </label>
-                        </div>
-                      </td>
-                    </tr>
-                    {monitoringMarketId === race.id && (
-                      <tr style={styles.monitorRow}>
-                        <td colSpan="4" style={styles.monitorCell}>
-                          <RaceMonitor
-                            marketId={race.id}
-                            raceName={race.name}
-                            runners={race.runners}
-                            selectedTrap={selectedTrap}
-                          />
+                    .map((race) => (
+                    <React.Fragment key={race.id}>
+                      <tr style={qualifiedRaces.includes(race.id) ? { ...styles.tableRow, ...styles.qualifiedRow } : styles.tableRow}>
+                        <td style={{ ...styles.tableCell, fontWeight: "bold" }}>
+                          {race.time}
+                        </td>
+                        <td style={styles.tableCell}>{race.venue}</td>
+                        <td style={styles.tableCell}>{race.name}</td>
+                        <td style={styles.tableCell}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <button
+                              style={styles.button}
+                              onClick={() => handleMonitorClick(race.id)}
+                            >
+                              {monitoringMarketId === race.id
+                                ? "Close Monitor"
+                                : "Monitor"}
+                            </button>
+                            <label style={styles.checkboxLabel} htmlFor={`qualified-${race.id}`}>
+                              <input
+                                id={`qualified-${race.id}`}
+                                type="checkbox"
+                                checked={qualifiedRaces.includes(race.id)}
+                                onChange={() => toggleQualified(race.id)}
+                                style={styles.checkbox}
+                              />
+                              Qualified
+                            </label>
+                          </div>
                         </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
+                      {monitoringMarketId === race.id && (
+                        <tr style={styles.monitorRow}>
+                          <td colSpan="4" style={styles.monitorCell}>
+                            <RaceMonitor
+                              marketId={race.id}
+                              raceName={race.name}
+                              runners={race.runners}
+                              selectedTrap={selectedTrap}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <p style={styles.placeholderText}>
               No greyhound races found for today.

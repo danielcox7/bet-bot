@@ -7,3 +7,28 @@
 body {
   margin: 0;
 }
+
+/* Mobile specific styling overrides */
+@media (max-width: 600px) {
+  .app-container {
+    padding: 1rem !important;
+  }
+  .app-card {
+    padding: 1rem !important;
+  }
+  .table-wrapper {
+    /* Hide scrollbar but keep it scrollable */
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  .table-wrapper::-webkit-scrollbar {
+    display: none; /* Chrome, Safari and Opera */
+  }
+  table th, table td {
+    font-size: 0.8rem !important;
+    padding: 8px !important;
+  }
+  select, input, button {
+    font-size: 0.8rem !important;
+  }
+}

@@ -66,22 +66,8 @@ async function sendTelegramAlert(message) {
   }
 }
 
-export default async function handler(req, res) {
-  const state = readState();
+async function runCheckOnce(state, sessionToken, appKey) {
   const { qualifiedRaces = [], manualOdds = {}, sentAlerts = {}, racesCache = {} } = state;
-
-  if (!qualifiedRaces.length) {
-    return res.status(200).json({ status: "OK", checkedCount: 0, message: "No qualified races to check" });
-  }
-
-  let sessionToken, appKey;
-  try {
-    ({ sessionToken, appKey } = await getBetfairSession());
-  } catch (err) {
-    console.error("[cron-check] Betfair auth error:", err.message);
-    return res.status(500).json({ error: `Betfair auth failed: ${err.message}` });
-  }
-
   const results = [];
 
   for (const marketId of qualifiedRaces) {
@@ -170,5 +156,37 @@ export default async function handler(req, res) {
   }
 
   saveState(state);
-  return res.status(200).json({ status: "OK", checkedCount: qualifiedRaces.length, results });
+  return results;
+}
+
+export default async function handler(req, res) {
+  const state = readState();
+  const { qualifiedRaces = [] } = state;
+
+  if (!qualifiedRaces.length) {
+    return res.status(200).json({ status: "OK", checkedCount: 0, message: "No qualified races to check" });
+  }
+
+  let sessionToken, appKey;
+  try {
+    ({ sessionToken, appKey } = await getBetfairSession());
+  } catch (err) {
+    console.error("[cron-check] Betfair auth error:", err.message);
+    return res.status(500).json({ error: `Betfair auth failed: ${err.message}` });
+  }
+
+  // Pass 1: Check immediately
+  const pass1 = await runCheckOnce(state, sessionToken, appKey);
+
+  // Short delay (4 seconds) for Pass 2 within the same 10-second invocation
+  await new Promise((resolve) => setTimeout(resolve, 4000));
+  const pass2 = await runCheckOnce(state, sessionToken, appKey);
+
+  return res.status(200).json({
+    status: "OK",
+    checkedCount: qualifiedRaces.length,
+    passes: 2,
+    pass1,
+    pass2,
+  });
 }

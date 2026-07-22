@@ -20,6 +20,7 @@ const convertToDecimal = (oddStr) => {
 import { getGreyhoundRaces, getMarketBook } from "./services/betfair";
 import RaceMonitor from "./services/RaceMonitor";
 import logo from "./assets/bet_bot_logo.jpg";
+import packageJson from "../package.json";
 
 const App = () => {
   // Telegram configuration from environment variables
@@ -313,6 +314,9 @@ useEffect(() => {
     <div style={styles.container} className="app-container">
       <header style={styles.header}>
         <img src={logo} alt="Bet Bot Logo" style={styles.logo} />
+        <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.5rem" }}>
+          Bet Bot <span style={{ fontSize: "0.85rem", color: "#6c757d", fontWeight: "600", backgroundColor: "#e9ecef", padding: "2px 8px", borderRadius: "12px", marginLeft: "6px" }}>v{packageJson.version}</span>
+        </h1>
         <p style={styles.status}>
           Greyhound Markets:{" "}
           <span style={styles.online}>{loading ? "Syncing..." : "Live"}</span>

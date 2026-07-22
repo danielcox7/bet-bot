@@ -1,17 +1,35 @@
 import { readFileSync, writeFileSync } from "fs";
 import { getBetfairSession } from "./betfair-auth.js";
+import { placeSpLayOrder } from "./place-sp-bet.js";
 
 const STATE_FILE = "/tmp/betbot_state.json";
 
 function readState() {
   try {
-    return JSON.parse(readFileSync(STATE_FILE, "utf8"));
+    const data = readFileSync(STATE_FILE, "utf8");
+    const parsed = JSON.parse(data);
+    return {
+      qualifiedRaces: parsed.qualifiedRaces || [],
+      manualOdds: parsed.manualOdds || {},
+      sentAlerts: parsed.sentAlerts || {},
+      racesCache: parsed.racesCache || {},
+      autoLayEnabled: parsed.autoLayEnabled ?? false,
+      maxLoss: parsed.maxLoss ?? 10,
+      simulationMode: parsed.simulationMode ?? true,
+      autoLayPerRace: parsed.autoLayPerRace || {},
+      placedBets: parsed.placedBets || {},
+    };
   } catch {
     return {
       qualifiedRaces: [],
       manualOdds: {},
       sentAlerts: {},
-      racesCache: {}
+      racesCache: {},
+      autoLayEnabled: false,
+      maxLoss: 10,
+      simulationMode: true,
+      autoLayPerRace: {},
+      placedBets: {},
     };
   }
 }
@@ -67,15 +85,21 @@ async function sendTelegramAlert(message) {
 }
 
 async function runCheckOnce(state, sessionToken, appKey) {
-  const { qualifiedRaces = [], manualOdds = {}, sentAlerts = {}, racesCache = {} } = state;
+  const {
+    qualifiedRaces = [],
+    manualOdds = {},
+    sentAlerts = {},
+    racesCache = {},
+    autoLayEnabled = false,
+    maxLoss = 10,
+    simulationMode = true,
+    autoLayPerRace = {},
+    placedBets = {},
+  } = state;
+
   const results = [];
 
   for (const marketId of qualifiedRaces) {
-    if (sentAlerts[marketId]) {
-      results.push({ marketId, status: "already_sent" });
-      continue;
-    }
-
     try {
       const response = await fetch("https://api.betfair.com/exchange/betting/rest/v1.0/listMarketBook/", {
         method: "POST",
@@ -107,6 +131,7 @@ async function runCheckOnce(state, sessionToken, appKey) {
 
       let isGreen = false;
       let qualifyingInfo = null;
+      let qualifyingRunner = null;
 
       market.runners?.forEach((runner) => {
         const rawOdd = raceOdds[runner.selectionId];
@@ -116,7 +141,8 @@ async function runCheckOnce(state, sessionToken, appKey) {
 
         if (sp !== null && back && diff >= 2) {
           isGreen = true;
-          if (!qualifyingInfo) {
+          if (!qualifyingRunner) {
+            qualifyingRunner = runner;
             const staticInfo = raceInfo?.runners?.find((r) => r.selectionId === runner.selectionId);
             let dogName = staticInfo ? staticInfo.runnerName : `Dog ${runner.selectionId}`;
             let trapNumber = "—";
@@ -125,26 +151,77 @@ async function runCheckOnce(state, sessionToken, appKey) {
               trapNumber = trapMatch[1];
               dogName = trapMatch[2];
             }
-            qualifyingInfo = { trapNumber, dogName };
+            qualifyingInfo = { trapNumber, dogName, selectionId: runner.selectionId };
           }
         }
       });
 
       if (isGreen) {
-        let message = raceInfo
-          ? `✅ Qualified race (green) detected: ${raceInfo.name} at ${raceInfo.time} (${raceInfo.venue})`
-          : `✅ Race ID ${marketId} qualified (green)`;
+        // 1. Send green detection alert if not yet sent
+        if (!sentAlerts[marketId]) {
+          let message = raceInfo
+            ? `✅ Qualified race (green) detected: ${raceInfo.name} at ${raceInfo.time} (${raceInfo.venue})`
+            : `✅ Race ID ${marketId} qualified (green)`;
 
-        if (qualifyingInfo) {
-          message += ` – Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}`;
+          if (qualifyingInfo) {
+            message += ` – Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}`;
+          }
+
+          const sent = await sendTelegramAlert(message);
+          if (sent) {
+            state.sentAlerts[marketId] = true;
+          }
         }
 
-        const sent = await sendTelegramAlert(message);
-        if (sent) {
-          state.sentAlerts[marketId] = true;
-          results.push({ marketId, status: "alert_sent", message });
+        // 2. Evaluate Auto-LAY order placement
+        const isAutoLayActive = autoLayEnabled || autoLayPerRace[marketId];
+        const betAlreadyPlaced = Boolean(placedBets[marketId]);
+
+        if (isAutoLayActive && !betAlreadyPlaced && qualifyingRunner) {
+          const raceLabel = raceInfo ? `${raceInfo.name} (${raceInfo.venue})` : `Race ID ${marketId}`;
+          const runnerLabel = qualifyingInfo ? `Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}` : `Selection ${qualifyingRunner.selectionId}`;
+
+          if (simulationMode) {
+            // SIMULATION MODE
+            state.placedBets[marketId] = {
+              timestamp: Date.now(),
+              mode: "simulation",
+              selectionId: qualifyingRunner.selectionId,
+              maxLoss: maxLoss,
+            };
+
+            const simMessage = `🧪 [TEST MODE] Auto-LAY Triggered!\n• Max Loss: £${parseFloat(maxLoss).toFixed(2)} @ SP\n• Race: ${raceLabel}\n• Runner: ${runnerLabel}`;
+            await sendTelegramAlert(simMessage);
+            results.push({ marketId, status: "auto_lay_simulated", maxLoss });
+          } else {
+            // LIVE MODE - SUBMIT REAL ORDER TO BETFAIR
+            try {
+              const orderRes = await placeSpLayOrder({
+                marketId,
+                selectionId: qualifyingRunner.selectionId,
+                maxLoss,
+              });
+
+              state.placedBets[marketId] = {
+                timestamp: Date.now(),
+                mode: "live",
+                selectionId: qualifyingRunner.selectionId,
+                maxLoss: maxLoss,
+                result: orderRes,
+              };
+
+              const liveMessage = `🚀 [LIVE BET] Auto-LAY Order Placed!\n• Max Loss: £${parseFloat(maxLoss).toFixed(2)} @ SP\n• Race: ${raceLabel}\n• Runner: ${runnerLabel}`;
+              await sendTelegramAlert(liveMessage);
+              results.push({ marketId, status: "auto_lay_live_success", maxLoss, orderRes });
+            } catch (betErr) {
+              console.error(`[cron-check] Auto-LAY placement failed for market ${marketId}:`, betErr);
+              const failMessage = `⚠️ [LIVE BET FAILED] Could not place Auto-LAY!\n• Race: ${raceLabel}\n• Error: ${betErr.message}`;
+              await sendTelegramAlert(failMessage);
+              results.push({ marketId, status: "auto_lay_live_failed", error: betErr.message });
+            }
+          }
         } else {
-          results.push({ marketId, status: "alert_failed" });
+          results.push({ marketId, status: "checked_green", alertSent: Boolean(sentAlerts[marketId]), betPlaced: betAlreadyPlaced });
         }
       } else {
         results.push({ marketId, status: "checked_not_green" });
@@ -178,7 +255,7 @@ export default async function handler(req, res) {
   // Pass 1: Check immediately
   const pass1 = await runCheckOnce(state, sessionToken, appKey);
 
-  // Short delay (4 seconds) for Pass 2 within the same 10-second invocation
+  // Short delay (4 seconds) for Pass 2 within the same invocation
   await new Promise((resolve) => setTimeout(resolve, 4000));
   const pass2 = await runCheckOnce(state, sessionToken, appKey);
 

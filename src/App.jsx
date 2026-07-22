@@ -60,6 +60,11 @@ const App = () => {
     }
   });
 
+  const [autoLayEnabled, setAutoLayEnabled] = useState(false);
+  const [maxLoss, setMaxLoss] = useState(10);
+  const [simulationMode, setSimulationMode] = useState(true);
+  const [autoLayPerRace, setAutoLayPerRace] = useState({});
+
   useEffect(() => {
     fetch("/api/qualified")
       .then((res) => res.json())
@@ -70,9 +75,53 @@ const App = () => {
             localStorage.setItem("betbot_qualified_races", JSON.stringify(data.qualifiedRaces));
           } catch (e) {}
         }
+        if (data?.autoLayEnabled !== undefined) setAutoLayEnabled(data.autoLayEnabled);
+        if (data?.maxLoss !== undefined) setMaxLoss(data.maxLoss);
+        if (data?.simulationMode !== undefined) setSimulationMode(data.simulationMode);
+        if (data?.autoLayPerRace) setAutoLayPerRace(data.autoLayPerRace);
       })
       .catch((err) => console.error("Failed to load server qualified races:", err));
   }, []);
+
+  const handleAutoLayEnabledToggle = (val) => {
+    setAutoLayEnabled(val);
+    fetch("/api/qualified", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoLayEnabled: val }),
+    }).catch((err) => console.error("API error:", err));
+  };
+
+  const handleMaxLossChange = (val) => {
+    const num = parseFloat(val);
+    setMaxLoss(val);
+    if (!isNaN(num) && num > 0) {
+      fetch("/api/qualified", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxLoss: num }),
+      }).catch((err) => console.error("API error:", err));
+    }
+  };
+
+  const handleSimulationModeChange = (val) => {
+    setSimulationMode(val);
+    fetch("/api/qualified", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ simulationMode: val }),
+    }).catch((err) => console.error("API error:", err));
+  };
+
+  const toggleAutoLayRace = (raceId, e) => {
+    if (e) e.stopPropagation();
+    setAutoLayPerRace((prev) => ({ ...prev, [raceId]: !prev[raceId] }));
+    fetch("/api/qualified", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggleAutoLayPerRace", raceId }),
+    }).catch((err) => console.error("API error:", err));
+  };
 
   const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
   // Auto‑bet toggle state (persisted)
@@ -329,6 +378,52 @@ useEffect(() => {
           </button>
         </p>
         <button onClick={() => sendTelegramAlert('Test Telegram alert from Bet Bot')} style={styles.button}>Test Telegram</button>
+        
+        <div style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "1rem",
+          backgroundColor: "#fff",
+          padding: "0.75rem 1.25rem",
+          borderRadius: "10px",
+          marginTop: "1rem",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+          border: "1px solid #e2e8f0"
+        }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontWeight: "600", fontSize: "0.9rem", cursor: "pointer" }}>
+            <span>Auto-LAY (SP):</span>
+            <input
+              type="checkbox"
+              checked={autoLayEnabled}
+              onChange={(e) => handleAutoLayEnabledToggle(e.target.checked)}
+              style={{ width: "18px", height: "18px", cursor: "pointer" }}
+            />
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", fontWeight: "600" }}>
+            Max Loss (£):
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={maxLoss}
+              onChange={(e) => handleMaxLossChange(e.target.value)}
+              style={{ width: "60px", padding: "4px 6px", borderRadius: "4px", border: "1px solid #ccc", textAlign: "center", fontWeight: "bold" }}
+            />
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.85rem", fontWeight: "600" }}>
+            Mode:
+            <select
+              value={simulationMode ? "test" : "live"}
+              onChange={(e) => handleSimulationModeChange(e.target.value === "test")}
+              style={{ padding: "4px 8px", borderRadius: "4px", border: "1px solid #ccc", fontWeight: "bold", backgroundColor: simulationMode ? "#fff3cd" : "#d1e7dd" }}
+            >
+              <option value="test">🧪 Test / Simulation</option>
+              <option value="live">🚀 Live Money</option>
+            </select>
+          </label>
+        </div>
       </header>
 
       <main style={styles.content}>
@@ -382,6 +477,7 @@ useEffect(() => {
                     <th style={styles.tableHeader}>Time</th>
                     <th style={styles.tableHeader}>Venue</th>
                     <th style={styles.tableHeader}>Market</th>
+                    <th style={styles.tableHeader}>Auto-LAY</th>
                     <th style={styles.tableHeader}>Action</th>
                   </tr>
                 </thead>
@@ -434,6 +530,23 @@ useEffect(() => {
                         </td>
                         <td style={styles.tableCell}>{race.venue}</td>
                         <td style={styles.tableCell}>{race.name}</td>
+                        <td style={styles.tableCell} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={(e) => toggleAutoLayRace(race.id, e)}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "4px",
+                              border: "1px solid #ccc",
+                              fontSize: "0.75rem",
+                              fontWeight: "bold",
+                              backgroundColor: autoLayPerRace[race.id] ? "#d1e7dd" : "#f8f9fa",
+                              color: autoLayPerRace[race.id] ? "#0f5132" : "#6c757d",
+                              cursor: "pointer"
+                            }}
+                          >
+                            {autoLayPerRace[race.id] ? "LAY ON" : "LAY OFF"}
+                          </button>
+                        </td>
                         <td style={styles.tableCell}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <button
@@ -452,7 +565,7 @@ useEffect(() => {
                       </tr>
                       {monitoringMarketId === race.id && (
                         <tr style={styles.monitorRow}>
-                          <td colSpan="4" style={styles.monitorCell}>
+                          <td colSpan="5" style={styles.monitorCell}>
                             <RaceMonitor
                               marketId={race.id}
                               raceName={race.name}

@@ -5,13 +5,29 @@ const STATE_FILE = "/tmp/betbot_state.json";
 function readState() {
   try {
     const data = readFileSync(STATE_FILE, "utf8");
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    return {
+      qualifiedRaces: parsed.qualifiedRaces || [],
+      manualOdds: parsed.manualOdds || {},
+      sentAlerts: parsed.sentAlerts || {},
+      racesCache: parsed.racesCache || {},
+      autoLayEnabled: parsed.autoLayEnabled ?? false,
+      maxLoss: parsed.maxLoss ?? 10,
+      simulationMode: parsed.simulationMode ?? true,
+      autoLayPerRace: parsed.autoLayPerRace || {},
+      placedBets: parsed.placedBets || {},
+    };
   } catch {
     return {
       qualifiedRaces: [],
       manualOdds: {},
       sentAlerts: {},
-      racesCache: {}
+      racesCache: {},
+      autoLayEnabled: false,
+      maxLoss: 10,
+      simulationMode: true,
+      autoLayPerRace: {},
+      placedBets: {},
     };
   }
 }
@@ -60,6 +76,21 @@ export default async function handler(req, res) {
       };
     }
 
+    if (body?.autoLayEnabled !== undefined) {
+      currentState.autoLayEnabled = Boolean(body.autoLayEnabled);
+    }
+
+    if (body?.maxLoss !== undefined) {
+      const num = parseFloat(body.maxLoss);
+      if (!isNaN(num) && num > 0) {
+        currentState.maxLoss = num;
+      }
+    }
+
+    if (body?.simulationMode !== undefined) {
+      currentState.simulationMode = Boolean(body.simulationMode);
+    }
+
     if (body?.action === "toggleQualified" && body?.raceId) {
       const idx = currentState.qualifiedRaces.indexOf(body.raceId);
       if (idx > -1) {
@@ -67,6 +98,10 @@ export default async function handler(req, res) {
       } else {
         currentState.qualifiedRaces.push(body.raceId);
       }
+    }
+
+    if (body?.action === "toggleAutoLayPerRace" && body?.raceId) {
+      currentState.autoLayPerRace[body.raceId] = !currentState.autoLayPerRace[body.raceId];
     }
 
     if (body?.action === "setOdds" && body?.marketId && body?.selectionId !== undefined) {

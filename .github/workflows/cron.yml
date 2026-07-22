@@ -1,0 +1,15 @@
+name: Background Race Check
+
+on:
+  schedule:
+    # Runs every 5 minutes (GitHub Actions schedule limit)
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check-races:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel Race Monitor API
+        run: |
+          curl -s -X GET "https://bet-bot-five.vercel.app/api/cron-check"

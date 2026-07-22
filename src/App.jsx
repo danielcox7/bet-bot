@@ -51,14 +51,29 @@ const App = () => {
   const [loading, setLoading] = useState(true);
   const [monitoringMarketId, setMonitoringMarketId] = useState(null); // Changed state to store marketId
   const [qualifiedRaces, setQualifiedRaces] = useState(() => {
-  try {
-    return JSON.parse(localStorage.getItem("betbot_qualified_races")) || [];
-  } catch (e) {
-    console.error("Error reading qualified races from localStorage:", e);
-    return [];
-  }
-});
-const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
+    try {
+      const stored = localStorage.getItem("betbot_qualified_races");
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    fetch("/api/qualified")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.qualifiedRaces)) {
+          setQualifiedRaces(data.qualifiedRaces);
+          try {
+            localStorage.setItem("betbot_qualified_races", JSON.stringify(data.qualifiedRaces));
+          } catch (e) {}
+        }
+      })
+      .catch((err) => console.error("Failed to load server qualified races:", err));
+  }, []);
+
+  const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
   // Auto‑bet toggle state (persisted)
   const [autoBetEnabled, setAutoBetEnabled] = useState(() => {
     try {
@@ -69,69 +84,75 @@ const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
     }
   });
 
-   const toggleQualified = async (raceId) => {
-     const isCurrentlyQualified = qualifiedRaces.includes(raceId);
-     
-     // 1. Toggle qualification state optimistically so UI updates instantly
-     if (isCurrentlyQualified) {
-       // Remove from qualified list
-       setQualifiedRaces((prev) => prev.filter((id) => id !== raceId));
-       return; // If we are just deselecting, no need to make network calls to check greens
-     } else {
-       // Add to qualified list
-       setQualifiedRaces((prev) => [...prev, raceId]);
-     }
+  const toggleQualified = async (raceId) => {
+    const isCurrentlyQualified = qualifiedRaces.includes(raceId);
+    
+    // Toggle qualification state optimistically so UI updates instantly
+    if (isCurrentlyQualified) {
+      setQualifiedRaces((prev) => prev.filter((id) => id !== raceId));
+    } else {
+      setQualifiedRaces((prev) => [...prev, raceId]);
+    }
 
-     // 2. Asynchronously check if the race is immediately "green" upon qualifying
-     const race = races.find((r) => r.id === raceId);
-     try {
-       const market = await getMarketBook(raceId);
-       const stored = localStorage.getItem(`betbot_odds_${raceId}`);
-       const manualOdds = stored ? JSON.parse(stored) : {};
+    // Sync with server API
+    fetch("/api/qualified", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggleQualified", raceId }),
+    }).catch((err) => console.error("API toggle error:", err));
 
-       let isGreen = false;
-       let qualifyingInfo = null;
-       market?.runners?.forEach((runner) => {
-         const sp = convertToDecimal(manualOdds[runner.selectionId]);
-         const back = parseFloat(runner.ex?.availableToBack?.[0]?.price ?? 0);
-         const diff = back - sp;
-         if (sp !== null && back && diff >= 2) {
-           isGreen = true;
-           if (!qualifyingInfo) {
-             const staticInfo = race?.runners?.find((r) => r.selectionId === runner.selectionId);
-             let dogName = staticInfo ? staticInfo.runnerName : `Dog ${runner.selectionId}`;
-             let trapNumber = "—";
-             const trapMatch = dogName.match(/^(\d+)\.\s+(.*)/);
-             if (trapMatch) {
-               trapNumber = trapMatch[1];
-               dogName = trapMatch[2];
-             }
-             qualifyingInfo = { trapNumber, dogName };
-           }
-         }
-       });
+    if (isCurrentlyQualified) return;
 
-       // Send immediate Telegram alert only when green
-       if (isGreen) {
-         let message = race
-           ? `✅ Qualified race (green) detected: ${race.name} at ${race.time} (${race.venue})`
-           : `✅ Race ID ${raceId} qualified (green)`;
-         if (qualifyingInfo) {
-           message += ` – Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}`;
-         }
-         await sendTelegramAlert(message);
-       }
-     } catch (err) {
-       console.error('Error evaluating green criteria for manual qualification:', err);
-     }
-   };
-useEffect(() => {
-  try {
-    localStorage.setItem('betbot_qualified_races', JSON.stringify(qualifiedRaces));
-  } catch (e) {
-    console.error('Error saving qualified races to localStorage:', e);
-  }
-}, [qualifiedRaces]);
+    // Asynchronously check if the race is immediately "green" upon qualifying
+    const race = races.find((r) => r.id === raceId);
+    try {
+      const market = await getMarketBook(raceId);
+      const stored = localStorage.getItem(`betbot_odds_${raceId}`);
+      const manualOdds = stored ? JSON.parse(stored) : {};
+
+      let isGreen = false;
+      let qualifyingInfo = null;
+      market?.runners?.forEach((runner) => {
+        const sp = convertToDecimal(manualOdds[runner.selectionId]);
+        const back = parseFloat(runner.ex?.availableToBack?.[0]?.price ?? 0);
+        const diff = back - sp;
+        if (sp !== null && back && diff >= 2) {
+          isGreen = true;
+          if (!qualifyingInfo) {
+            const staticInfo = race?.runners?.find((r) => r.selectionId === runner.selectionId);
+            let dogName = staticInfo ? staticInfo.runnerName : `Dog ${runner.selectionId}`;
+            let trapNumber = "—";
+            const trapMatch = dogName.match(/^(\d+)\.\s+(.*)/);
+            if (trapMatch) {
+              trapNumber = trapMatch[1];
+              dogName = trapMatch[2];
+            }
+            qualifyingInfo = { trapNumber, dogName };
+          }
+        }
+      });
+
+      if (isGreen) {
+        let message = race
+          ? `✅ Qualified race (green) detected: ${race.name} at ${race.time} (${race.venue})`
+          : `✅ Race ID ${raceId} qualified`;
+        if (qualifyingInfo) {
+          message += ` – Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}`;
+        }
+        await sendTelegramAlert(message);
+      }
+    } catch (err) {
+      console.error('Error evaluating green criteria for manual qualification:', err);
+    }
+  };
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('betbot_qualified_races', JSON.stringify(qualifiedRaces));
+    } catch (e) {
+      console.error('Error saving qualified races to localStorage:', e);
+    }
+  }, [qualifiedRaces]);
 
 // Periodically check qualified races for green condition and send alert if not yet sent
 useEffect(() => {
@@ -236,6 +257,14 @@ const [selectedTrap, setSelectedTrap] = useState(() => {
     const data = await getGreyhoundRaces();
     setRaces(data);
     setLoading(false);
+
+    if (Array.isArray(data) && data.length > 0) {
+      fetch("/api/qualified", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ racesInfo: data }),
+      }).catch((err) => console.error("API sync races error:", err));
+    }
   };
 
   useEffect(() => {

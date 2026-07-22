@@ -16,30 +16,19 @@ const RaceMonitor = ({ marketId, raceName, runners }) => {
   });
 
   const handleOddsChange = (selectionId, val) => {
-    // Allow clearing the input
-    if (val === "") {
-      setManualOdds((prev) => {
-        const updated = { ...prev, [selectionId]: "" };
-        try {
-          localStorage.setItem(`betbot_odds_${marketId}`, JSON.stringify(updated));
-        } catch (e) {
-          console.error("Error saving manual odds to localStorage:", e);
-        }
-        return updated;
-      });
-      return;
-    }
-
-    // Convert fractional odds (e.g., "9/2") to decimal odds
-    let processed = val.trim();
-    // Store the raw value (fractional or decimal) directly
+    const oddVal = val === "" ? "" : val.trim();
     setManualOdds((prev) => {
-      const updated = { ...prev, [selectionId]: val };
+      const updated = { ...prev, [selectionId]: oddVal };
       try {
         localStorage.setItem(`betbot_odds_${marketId}`, JSON.stringify(updated));
       } catch (e) {
         console.error("Error saving manual odds to localStorage:", e);
       }
+      fetch('/api/qualified', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'setOdds', marketId, selectionId, oddVal }),
+      }).catch(err => console.error("API odds sync error:", err));
       return updated;
     });
   };

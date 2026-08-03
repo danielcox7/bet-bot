@@ -1,46 +1,6 @@
-import { readFileSync, writeFileSync } from "fs";
 import { getBetfairSession } from "./betfair-auth.js";
 import { placeSpLayOrder } from "./place-sp-bet.js";
-
-const STATE_FILE = "/tmp/betbot_state.json";
-
-function readState() {
-  try {
-    const data = readFileSync(STATE_FILE, "utf8");
-    const parsed = JSON.parse(data);
-    return {
-      qualifiedRaces: parsed.qualifiedRaces || [],
-      manualOdds: parsed.manualOdds || {},
-      sentAlerts: parsed.sentAlerts || {},
-      racesCache: parsed.racesCache || {},
-      autoLayEnabled: parsed.autoLayEnabled ?? false,
-      maxLoss: parsed.maxLoss ?? 10,
-      simulationMode: parsed.simulationMode ?? true,
-      autoLayPerRace: parsed.autoLayPerRace || {},
-      placedBets: parsed.placedBets || {},
-    };
-  } catch {
-    return {
-      qualifiedRaces: [],
-      manualOdds: {},
-      sentAlerts: {},
-      racesCache: {},
-      autoLayEnabled: false,
-      maxLoss: 10,
-      simulationMode: true,
-      autoLayPerRace: {},
-      placedBets: {},
-    };
-  }
-}
-
-function saveState(state) {
-  try {
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
-  } catch (e) {
-    console.error("[cron-check] Failed to write state file:", e);
-  }
-}
+import { readState, saveState } from "./db.js";
 
 function convertToDecimal(oddStr) {
   if (!oddStr) return null;
@@ -232,12 +192,12 @@ async function runCheckOnce(state, sessionToken, appKey) {
     }
   }
 
-  saveState(state);
+  await saveState(state);
   return results;
 }
 
 export default async function handler(req, res) {
-  const state = readState();
+  const state = await readState();
   const { qualifiedRaces = [] } = state;
 
   if (!qualifiedRaces.length) {

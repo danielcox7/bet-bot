@@ -1,44 +1,4 @@
-import { readFileSync, writeFileSync } from "fs";
-
-const STATE_FILE = "/tmp/betbot_state.json";
-
-function readState() {
-  try {
-    const data = readFileSync(STATE_FILE, "utf8");
-    const parsed = JSON.parse(data);
-    return {
-      qualifiedRaces: parsed.qualifiedRaces || [],
-      manualOdds: parsed.manualOdds || {},
-      sentAlerts: parsed.sentAlerts || {},
-      racesCache: parsed.racesCache || {},
-      autoLayEnabled: parsed.autoLayEnabled ?? false,
-      maxLoss: parsed.maxLoss ?? 10,
-      simulationMode: parsed.simulationMode ?? true,
-      autoLayPerRace: parsed.autoLayPerRace || {},
-      placedBets: parsed.placedBets || {},
-    };
-  } catch {
-    return {
-      qualifiedRaces: [],
-      manualOdds: {},
-      sentAlerts: {},
-      racesCache: {},
-      autoLayEnabled: false,
-      maxLoss: 10,
-      simulationMode: true,
-      autoLayPerRace: {},
-      placedBets: {},
-    };
-  }
-}
-
-function saveState(state) {
-  try {
-    writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
-  } catch (e) {
-    console.error("[qualified-api] Failed to write state file:", e);
-  }
-}
+import { readState, saveState } from "./db.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -49,7 +9,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const currentState = readState();
+  const currentState = await readState();
 
   if (req.method === "GET") {
     return res.status(200).json(currentState);
@@ -117,7 +77,7 @@ export default async function handler(req, res) {
       });
     }
 
-    saveState(currentState);
+    await saveState(currentState);
     return res.status(200).json(currentState);
   }
 

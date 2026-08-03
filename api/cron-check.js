@@ -201,7 +201,7 @@ export default async function handler(req, res) {
   const { qualifiedRaces = [] } = state;
 
   if (!qualifiedRaces.length) {
-    return res.status(200).json({ status: "OK", checkedCount: 0, message: "No qualified races to check" });
+    return res.status(200).json({ status: "OK", checkedCount: 0, message: "No qualified races to check", debugState: state });
   }
 
   let sessionToken, appKey;

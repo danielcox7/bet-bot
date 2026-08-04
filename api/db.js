@@ -15,26 +15,55 @@ const DEFAULT_STATE = {
   placedBets: {},
 };
 
-export async function readState() {
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || process.env.REDIS_REST_API_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || process.env.REDIS_REST_API_TOKEN;
-
-  if (redisUrl && redisToken) {
+function getRedisCredentials() {
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    return { url: process.env.UPSTASH_REDIS_REST_URL, token: process.env.UPSTASH_REDIS_REST_TOKEN };
+  }
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    return { url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN };
+  }
+  if (process.env.REDIS_REST_API_URL && process.env.REDIS_REST_API_TOKEN) {
+    return { url: process.env.REDIS_REST_API_URL, token: process.env.REDIS_REST_API_TOKEN };
+  }
+  if (process.env.REDIS_URL) {
     try {
-      const res = await fetch(`${redisUrl}/get/${STATE_KEY}`, {
-        headers: { Authorization: `Bearer ${redisToken}` },
+      const parsed = new URL(process.env.REDIS_URL);
+      const host = parsed.hostname;
+      const password = parsed.password || (parsed.username !== "default" ? parsed.username : null);
+      if (host && password) {
+        return {
+          url: `https://${host}`,
+          token: password,
+        };
+      }
+    } catch (e) {
+      console.error("[db] Error parsing REDIS_URL:", e.message);
+    }
+  }
+  return null;
+}
+
+export async function readState() {
+  const creds = getRedisCredentials();
+
+  if (creds?.url && creds?.token) {
+    try {
+      const res = await fetch(`${creds.url}/get/${STATE_KEY}`, {
+        headers: { Authorization: `Bearer ${creds.token}` },
       });
       if (res.ok) {
         const json = await res.json();
         let raw = json.result;
         if (raw) {
           const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-          console.log("[db] Successfully read state from Upstash/Vercel KV.");
+          console.log("[db] Successfully read state from Redis.");
           return { ...DEFAULT_STATE, ...parsed };
         }
+      } else {
+        console.error("[db] Redis GET response not OK:", res.status, await res.text());
       }
     } catch (err) {
-      console.error("[db] Upstash/Vercel KV read error:", err.message);
+      console.error("[db] Redis read error:", err.message);
     }
   }
 
@@ -68,24 +97,25 @@ export async function readState() {
 }
 
 export async function saveState(state) {
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || process.env.REDIS_REST_API_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || process.env.REDIS_REST_API_TOKEN;
+  const creds = getRedisCredentials();
 
-  if (redisUrl && redisToken) {
+  if (creds?.url && creds?.token) {
     try {
-      const res = await fetch(`${redisUrl}/set/${STATE_KEY}`, {
+      const res = await fetch(`${creds.url}/set/${STATE_KEY}`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${redisToken}`,
+          Authorization: `Bearer ${creds.token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(JSON.stringify(state)),
       });
       if (res.ok) {
-        console.log("[db] Successfully saved state to Upstash/Vercel KV.");
+        console.log("[db] Successfully saved state to Redis.");
+      } else {
+        console.error("[db] Redis SET response not OK:", res.status, await res.text());
       }
     } catch (err) {
-      console.error("[db] Upstash/Vercel KV save error:", err.message);
+      console.error("[db] Redis save error:", err.message);
     }
   }
 

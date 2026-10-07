@@ -60,67 +60,27 @@ const App = () => {
     }
   });
 
-  const [autoLayEnabled, setAutoLayEnabled] = useState(false);
-  const [maxLoss, setMaxLoss] = useState(10);
-  const [simulationMode, setSimulationMode] = useState(true);
-  const [autoLayPerRace, setAutoLayPerRace] = useState({});
+  const [autoLayEnabled, setAutoLayEnabled] = useState(() => JSON.parse(localStorage.getItem("betbot_autoLayEnabled") || "false"));
+  const [maxLoss, setMaxLoss] = useState(() => parseFloat(localStorage.getItem("betbot_maxLoss") || "10"));
+  const [simulationMode, setSimulationMode] = useState(() => JSON.parse(localStorage.getItem("betbot_simulationMode") || "true"));
 
-  useEffect(() => {
-    fetch("/api/qualified")
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data?.qualifiedRaces)) {
-          setQualifiedRaces(data.qualifiedRaces);
-          try {
-            localStorage.setItem("betbot_qualified_races", JSON.stringify(data.qualifiedRaces));
-          } catch (e) {}
-        }
-        if (data?.autoLayEnabled !== undefined) setAutoLayEnabled(data.autoLayEnabled);
-        if (data?.maxLoss !== undefined) setMaxLoss(data.maxLoss);
-        if (data?.simulationMode !== undefined) setSimulationMode(data.simulationMode);
-        if (data?.autoLayPerRace) setAutoLayPerRace(data.autoLayPerRace);
-      })
-      .catch((err) => console.error("Failed to load server qualified races:", err));
-  }, []);
 
-  const handleAutoLayEnabledToggle = (val) => {
+const handleAutoLayEnabledToggle = (val) => {
     setAutoLayEnabled(val);
-    fetch("/api/qualified", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ autoLayEnabled: val }),
-    }).catch((err) => console.error("API error:", err));
+    localStorage.setItem("betbot_autoLayEnabled", JSON.stringify(val));
   };
 
   const handleMaxLossChange = (val) => {
     const num = parseFloat(val);
     setMaxLoss(val);
     if (!isNaN(num) && num > 0) {
-      fetch("/api/qualified", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ maxLoss: num }),
-      }).catch((err) => console.error("API error:", err));
+      localStorage.setItem("betbot_maxLoss", num.toString());
     }
   };
 
   const handleSimulationModeChange = (val) => {
     setSimulationMode(val);
-    fetch("/api/qualified", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ simulationMode: val }),
-    }).catch((err) => console.error("API error:", err));
-  };
-
-  const toggleAutoLayRace = (raceId, e) => {
-    if (e) e.stopPropagation();
-    setAutoLayPerRace((prev) => ({ ...prev, [raceId]: !prev[raceId] }));
-    fetch("/api/qualified", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "toggleAutoLayPerRace", raceId }),
-    }).catch((err) => console.error("API error:", err));
+    localStorage.setItem("betbot_simulationMode", JSON.stringify(val));
   };
 
   const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
@@ -134,66 +94,51 @@ const App = () => {
     }
   });
 
-  const toggleQualified = async (raceId) => {
+const toggleQualified = async (raceId) => {
     const isCurrentlyQualified = qualifiedRaces.includes(raceId);
     
-    // Toggle qualification state optimistically so UI updates instantly
     if (isCurrentlyQualified) {
       setQualifiedRaces((prev) => prev.filter((id) => id !== raceId));
-    } else {
-      setQualifiedRaces((prev) => [...prev, raceId]);
+      return;
     }
 
-    // Sync with server API
-    fetch("/api/qualified", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "toggleQualified", raceId }),
-    }).catch((err) => console.error("API toggle error:", err));
+    setQualifiedRaces((prev) => [...prev, raceId]);
 
-    if (isCurrentlyQualified) return;
+    const race = races.find(r => r.id === raceId);
+    if (!race) return;
 
-    // Asynchronously check if the race is immediately "green" upon qualifying
-    const race = races.find((r) => r.id === raceId);
-    try {
-      const market = await getMarketBook(raceId);
-      const stored = localStorage.getItem(`betbot_odds_${raceId}`);
-      const manualOdds = stored ? JSON.parse(stored) : {};
-
-      let isGreen = false;
-      let qualifyingInfo = null;
-      market?.runners?.forEach((runner) => {
-        const sp = convertToDecimal(manualOdds[runner.selectionId]);
-        const back = parseFloat(runner.ex?.availableToBack?.[0]?.price ?? 0);
-        const diff = back - sp;
-        if (sp !== null && back && diff >= 2) {
-          isGreen = true;
-          if (!qualifyingInfo) {
-            const staticInfo = race?.runners?.find((r) => r.selectionId === runner.selectionId);
-            let dogName = staticInfo ? staticInfo.runnerName : `Dog ${runner.selectionId}`;
-            let trapNumber = "—";
-            const trapMatch = dogName.match(/^(\d+)\.\s+(.*)/);
-            if (trapMatch) {
-              trapNumber = trapMatch[1];
-              dogName = trapMatch[2];
-            }
-            qualifyingInfo = { trapNumber, dogName };
+    let msg = `✅ Race Qualified: ${race.time} ${race.venue}\n`;
+    const trap2 = race.runners?.find(r => r.runnerName.match(/^2\.\s/));
+    
+    if (autoLayEnabled && trap2) {
+      if (simulationMode) {
+        msg += `\n🧪 [SIMULATION] Auto-LAY Triggered for Trap 2 (${trap2.runnerName})\nMax Loss: £${maxLoss}`;
+      } else {
+        msg += `\n🚀 [LIVE] Placing Auto-LAY for Trap 2 (${trap2.runnerName})\nMax Loss: £${maxLoss}`;
+        try {
+          const res = await fetch("/api/place-sp-bet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              marketId: race.id,
+              selectionId: trap2.selectionId,
+              maxLoss: maxLoss
+            })
+          });
+          if (!res.ok) {
+            msg += `\n❌ Bet Placement Failed: ${res.statusText}`;
+          } else {
+            msg += `\n✅ Bet Placed Successfully!`;
           }
+        } catch (err) {
+          msg += `\n❌ Bet Placement Error: ${err.message}`;
         }
-      });
-
-      if (isGreen) {
-        let message = race
-          ? `✅ Qualified race (green) detected: ${race.name} at ${race.time} (${race.venue})`
-          : `✅ Race ID ${raceId} qualified`;
-        if (qualifyingInfo) {
-          message += ` – Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}`;
-        }
-        await sendTelegramAlert(message);
       }
-    } catch (err) {
-      console.error('Error evaluating green criteria for manual qualification:', err);
+    } else if (autoLayEnabled && !trap2) {
+      msg += `\n⚠️ Auto-LAY Failed: Trap 2 not found in this race.`;
     }
+
+    await sendTelegramAlert(msg);
   };
 
   useEffect(() => {
@@ -204,66 +149,7 @@ const App = () => {
     }
   }, [qualifiedRaces]);
 
-// Periodically check qualified races for green condition and send alert if not yet sent
-useEffect(() => {
-  const intervalId = setInterval(() => {
-    qualifiedRaces.forEach(async (raceId) => {
-      if (localStorage.getItem(`betbot_alert_sent_${raceId}`)) return;
-      try {
-        const race = races.find((r) => r.id === raceId);
-        const market = await getMarketBook(raceId);
-        const stored = localStorage.getItem(`betbot_odds_${raceId}`);
-        const manualOdds = stored ? JSON.parse(stored) : {};
-        let isGreen = false;
-        // Determine if any runner meets green criteria and capture trap/dog info
-        let qualifyingInfo = null;
-        market?.runners?.forEach((runner) => {
-          const sp = convertToDecimal(manualOdds[runner.selectionId]);
-          const back = parseFloat(runner.ex?.availableToBack?.[0]?.price ?? 0);
-          const diff = back - sp;
-          console.log(`Periodic check - Runner ${runner.selectionId}: SP=${sp}, Back=${back}, Diff=${diff}`);
-          if (sp !== null && back && diff >= 2) {
-            isGreen = true;
-            if (!qualifyingInfo) {
-              const staticInfo = race?.runners?.find((r) => r.selectionId === runner.selectionId);
-              let dogName = staticInfo ? staticInfo.runnerName : `Dog ${runner.selectionId}`;
-              let trapNumber = "—";
-              const trapMatch = dogName.match(/^(\d+)\.\s+(.*)/);
-              if (trapMatch) {
-                trapNumber = trapMatch[1];
-                dogName = trapMatch[2];
-              }
-              qualifyingInfo = { trapNumber, dogName };
-            }
-          }
-        });
-        if (isGreen) {
-          // Auto‑qualify the race if not already qualified
-          if (!qualifiedRaces.includes(raceId)) {
-            setQualifiedRaces((prev) => {
-              const updated = new Set([...prev, raceId]);
-              return Array.from(updated);
-            });
-          }
-          // Build base message
-          let message = race
-            ? `✅ Qualified race (green) detected: ${race.name} at ${race.time} (${race.venue})`
-            : `✅ Race ID ${raceId} qualified (green)`;
-          // Append trap and dog name if captured
-          if (qualifyingInfo) {
-            message += ` – Trap ${qualifyingInfo.trapNumber}, ${qualifyingInfo.dogName}`;
-          }
-          await sendTelegramAlert(message);
-          localStorage.setItem(`betbot_alert_sent_${raceId}`, 'true');
-        }
-
-      } catch (err) {
-        console.error('Error checking pending alerts:', err);
-      }
-    });
-  }, 5000); // Poll every 5s for live odds checking
-  return () => clearInterval(intervalId);
-}, [qualifiedRaces, races]);
+// Removed old 5-second polling loop for Green strategy
 const [selectedTrap, setSelectedTrap] = useState(() => {
 
     try {
@@ -308,13 +194,6 @@ const [selectedTrap, setSelectedTrap] = useState(() => {
     setRaces(data);
     setLoading(false);
 
-    if (Array.isArray(data) && data.length > 0) {
-      fetch("/api/qualified", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ racesInfo: data }),
-      }).catch((err) => console.error("API sync races error:", err));
-    }
   };
 
   useEffect(() => {
@@ -359,6 +238,7 @@ useEffect(() => {
     setMonitoringMarketId((prevId) => (prevId === raceId ? null : raceId)); // Toggle monitor
   };
 
+
   return (
     <div style={styles.container} className="app-container">
       <header style={styles.header}>
@@ -377,7 +257,9 @@ useEffect(() => {
             {loading ? "..." : "↻"}
           </button>
         </p>
-        <button onClick={() => sendTelegramAlert('Test Telegram alert from Bet Bot')} style={styles.button}>Test Telegram</button>
+        <div style={{ display: "flex", gap: "1rem" }}>
+          <button onClick={() => sendTelegramAlert('Test Telegram alert from Bet Bot')} style={styles.button}>Test Telegram</button>
+        </div>
         
         <div style={{
           display: "flex",
@@ -477,7 +359,6 @@ useEffect(() => {
                     <th style={styles.tableHeader}>Time</th>
                     <th style={styles.tableHeader}>Venue</th>
                     <th style={styles.tableHeader}>Market</th>
-                    <th style={styles.tableHeader}>Auto-LAY</th>
                     <th style={styles.tableHeader}>Action</th>
                   </tr>
                 </thead>
@@ -530,23 +411,6 @@ useEffect(() => {
                         </td>
                         <td style={styles.tableCell}>{race.venue}</td>
                         <td style={styles.tableCell}>{race.name}</td>
-                        <td style={styles.tableCell} onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={(e) => toggleAutoLayRace(race.id, e)}
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: "4px",
-                              border: "1px solid #ccc",
-                              fontSize: "0.75rem",
-                              fontWeight: "bold",
-                              backgroundColor: autoLayPerRace[race.id] ? "#d1e7dd" : "#f8f9fa",
-                              color: autoLayPerRace[race.id] ? "#0f5132" : "#6c757d",
-                              cursor: "pointer"
-                            }}
-                          >
-                            {autoLayPerRace[race.id] ? "LAY ON" : "LAY OFF"}
-                          </button>
-                        </td>
                         <td style={styles.tableCell}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <button

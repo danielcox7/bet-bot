@@ -99,47 +99,91 @@ const toggleQualified = async (raceId) => {
     
     if (isCurrentlyQualified) {
       setQualifiedRaces((prev) => prev.filter((id) => id !== raceId));
+      // Remove any pending flags if we un-qualify
+      localStorage.removeItem(`betbot_alert_sent_${raceId}`);
       return;
     }
 
     setQualifiedRaces((prev) => [...prev, raceId]);
-
-    const race = races.find(r => r.id === raceId);
-    if (!race) return;
-
-    let msg = `✅ Race Qualified: ${race.time} ${race.venue}\n`;
-    const trap2 = race.runners?.find(r => r.runnerName.match(/^2\.\s/));
-    
-    if (autoLayEnabled && trap2) {
-      if (simulationMode) {
-        msg += `\n🧪 [SIMULATION] Auto-LAY Triggered for Trap 2 (${trap2.runnerName})\nMax Loss: £${maxLoss}`;
-      } else {
-        msg += `\n🚀 [LIVE] Placing Auto-LAY for Trap 2 (${trap2.runnerName})\nMax Loss: £${maxLoss}`;
-        try {
-          const res = await fetch("/api/place-sp-bet", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              marketId: race.id,
-              selectionId: trap2.selectionId,
-              maxLoss: maxLoss
-            })
-          });
-          if (!res.ok) {
-            msg += `\n❌ Bet Placement Failed: ${res.statusText}`;
-          } else {
-            msg += `\n✅ Bet Placed Successfully!`;
-          }
-        } catch (err) {
-          msg += `\n❌ Bet Placement Error: ${err.message}`;
-        }
-      }
-    } else if (autoLayEnabled && !trap2) {
-      msg += `\n⚠️ Auto-LAY Failed: Trap 2 not found in this race.`;
-    }
-
-    await sendTelegramAlert(msg);
+    // Note: We no longer send the immediate notification/bet here.
+    // The polling loop below will handle it when the race is 2 mins away.
   };
+
+  // Monitor qualified races and trigger 2 minutes before start
+  useEffect(() => {
+    if (!races || races.length === 0 || qualifiedRaces.length === 0) return;
+
+    const intervalId = setInterval(() => {
+      const now = new Date();
+      
+      qualifiedRaces.forEach(async (raceId) => {
+        // Skip if already alerted/processed
+        if (localStorage.getItem(`betbot_alert_sent_${raceId}`)) return;
+
+        const race = races.find(r => r.id === raceId);
+        if (!race) return;
+
+        // Parse race.time (e.g. 11:42 AM or 18:30)
+        const m = race.time.match(/(\d+):(\d+)\s*([AP]M)?/i);
+        if (!m) return;
+
+        let hour = parseInt(m[1], 10);
+        const minute = parseInt(m[2], 10);
+        const meridiem = m[3];
+        if (meridiem) {
+          const isPM = meridiem.toUpperCase() === 'PM';
+          if (hour === 12) hour = isPM ? 12 : 0;
+          else if (isPM) hour += 12;
+        }
+        
+        const raceStartTime = new Date(now);
+        raceStartTime.setHours(hour, minute, 0, 0);
+
+        const diffMs = raceStartTime - now;
+        const diffMinutes = Math.floor(diffMs / 60000);
+
+        // Check if race is exactly 0-2 minutes away
+        if (diffMinutes >= 0 && diffMinutes <= 2) {
+          localStorage.setItem(`betbot_alert_sent_${raceId}`, 'true');
+
+          let msg = `🚨 Qualified Race Starting Soon: ${race.time} ${race.venue}\n`;
+          const trap2 = race.runners?.find(r => r.runnerName.match(/^2\.\s/));
+          
+          if (autoLayEnabled && trap2) {
+            if (simulationMode) {
+              msg += `\n🧪 [SIMULATION] Auto-LAY Triggered for Trap 2 (${trap2.runnerName})\nMax Loss: £${maxLoss}`;
+            } else {
+              msg += `\n🚀 [LIVE] Placing Auto-LAY for Trap 2 (${trap2.runnerName})\nMax Loss: £${maxLoss}`;
+              try {
+                const res = await fetch("/api/place-sp-bet", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    marketId: race.id,
+                    selectionId: trap2.selectionId,
+                    maxLoss: maxLoss
+                  })
+                });
+                if (!res.ok) {
+                  msg += `\n❌ Bet Placement Failed: ${res.statusText}`;
+                } else {
+                  msg += `\n✅ Bet Placed Successfully!`;
+                }
+              } catch (err) {
+                msg += `\n❌ Bet Placement Error: ${err.message}`;
+              }
+            }
+          } else if (autoLayEnabled && !trap2) {
+            msg += `\n⚠️ Auto-LAY Failed: Trap 2 not found in this race.`;
+          }
+
+          await sendTelegramAlert(msg);
+        }
+      });
+    }, 10000); // Check every 10 seconds
+
+    return () => clearInterval(intervalId);
+  }, [races, qualifiedRaces, autoLayEnabled, maxLoss, simulationMode]);
 
   useEffect(() => {
     try {

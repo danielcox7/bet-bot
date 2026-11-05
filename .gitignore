@@ -26,3 +26,14 @@ dist-ssr
 
 # Local Netlify folder
 .netlify
+
+# Historical data & analysis
+*.tar
+*.bz2
+analyze_*.py
+test_*.py
+verify_*.py
+find_*.py
+pincer_*.py
+targeted_*.py
+data_1.tar

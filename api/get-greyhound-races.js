@@ -54,20 +54,25 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    const races = data.map((m) => ({
-      id: m.marketId,
-      time: new Date(m.marketStartTime).toLocaleTimeString("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: "Europe/London",
-      }),
-      venue: m.event.venue || m.event.name,
-      name: m.marketName,
-      runners: m.runners.map((r) => ({
-        selectionId: r.selectionId,
-        runnerName: r.runnerName,
-      })),
-    }));
+    const races = data.map((m) => {
+      const distMatch = m.marketName?.match(/(\d{3,4})\s*m?/i);
+      const distance = distMatch ? `${distMatch[1]}m` : null;
+      return {
+        id: m.marketId,
+        time: new Date(m.marketStartTime).toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: "Europe/London",
+        }),
+        venue: m.event.venue || m.event.name,
+        distance,
+        name: m.marketName,
+        runners: m.runners.map((r) => ({
+          selectionId: r.selectionId,
+          runnerName: r.runnerName,
+        })),
+      };
+    });
 
     console.log(`[get-greyhound-races] Returning ${races.length} races.`);
 

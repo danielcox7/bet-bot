@@ -17,7 +17,7 @@ const convertToDecimal = (oddStr) => {
   const asNum = parseFloat(trimmed);
   return isNaN(asNum) ? null : asNum;
 };
-import { getGreyhoundRaces, getMarketBook } from "./services/betfair";
+import { getGreyhoundRaces, getMarketBook, getGreyhoundForm } from "./services/betfair";
 import RaceMonitor from "./services/RaceMonitor";
 import logo from "./assets/bet_bot_logo.jpg";
 import packageJson from "../package.json";
@@ -84,6 +84,24 @@ const handleAutoLayEnabledToggle = (val) => {
   };
 
   const [showQualifiedOnly, setShowQualifiedOnly] = useState(false);
+  const [formData, setFormData] = useState({});
+  const [formLoading, setFormLoading] = useState(false);
+  const [showTrap1CDOnly, setShowTrap1CDOnly] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("betbot_show_trap1_cd_only") || "false");
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const handleToggleTrap1CD = (val) => {
+    setShowTrap1CDOnly(val);
+    try {
+      localStorage.setItem("betbot_show_trap1_cd_only", JSON.stringify(val));
+    } catch (e) {
+      console.error("Error saving Trap 1 CD toggle:", e);
+    }
+  };
   // Auto‑bet toggle state (persisted)
   const [autoBetEnabled, setAutoBetEnabled] = useState(() => {
     try {
@@ -244,6 +262,45 @@ const [selectedTrap, setSelectedTrap] = useState(() => {
     fetchRaces();
   }, []);
 
+  // Fetch Trap 1 form from GBGB whenever races are loaded
+  useEffect(() => {
+    if (!races || races.length === 0) return;
+
+    let isMounted = true;
+    const fetchForm = async () => {
+      try {
+        setFormLoading(true);
+        const racePayload = races
+          .map((r) => {
+            const trap1 = r.runners?.find((runner) => runner.runnerName.match(/^1\.\s/));
+            return {
+              id: r.id,
+              trap1Dog: trap1?.runnerName || "",
+              venue: r.venue,
+              distance: r.distance || r.name,
+            };
+          })
+          .filter((r) => r.trap1Dog);
+
+        if (racePayload.length > 0) {
+          const formResults = await getGreyhoundForm(racePayload);
+          if (isMounted && formResults) {
+            setFormData(formResults);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching Trap 1 form:", err);
+      } finally {
+        if (isMounted) setFormLoading(false);
+      }
+    };
+
+    fetchForm();
+    return () => {
+      isMounted = false;
+    };
+  }, [races]);
+
 // --- Automatic daily cleanup of stale localStorage entries ---
 useEffect(() => {
   if (!races?.length) return;
@@ -390,6 +447,30 @@ useEffect(() => {
               />
               Show Qualified Only
             </span>
+            <label
+              style={{
+                ...styles.checkboxLabel,
+                backgroundColor: showTrap1CDOnly ? "#d1e7dd" : "#fff",
+                color: showTrap1CDOnly ? "#0f5132" : "#333",
+                border: showTrap1CDOnly ? "1px solid #198754" : "1px solid #ccc",
+                borderRadius: "6px",
+                padding: "4px 10px",
+                cursor: "pointer",
+                fontWeight: "600",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showTrap1CDOnly}
+                onChange={(e) => handleToggleTrap1CD(e.target.checked)}
+                style={styles.checkbox}
+              />
+              🏆 Trap 1 C&D Winner {formLoading ? "(Loading...)" : ""}
+            </label>
           </div>
           {loading ? (
             <p style={styles.placeholderText}>
@@ -403,6 +484,7 @@ useEffect(() => {
                     <th style={styles.tableHeader}>Time</th>
                     <th style={styles.tableHeader}>Venue</th>
                     <th style={styles.tableHeader}>Market</th>
+                    <th style={styles.tableHeader}>Trap 1 Form</th>
                     <th style={styles.tableHeader}>Action</th>
                   </tr>
                 </thead>
@@ -412,6 +494,7 @@ useEffect(() => {
                         // basic filters
                         if (selectedTrack !== "ALL" && race.venue !== selectedTrack) return false;
                         if (showQualifiedOnly && !qualifiedRaces.includes(race.id)) return false;
+                        if (showTrap1CDOnly && !formData[race.id]?.isCDWinner) return false;
                         // time filter – exclude races that have already started/passed
                         const now = new Date();
                         const nowMins = now.getHours() * 60 + now.getMinutes();
@@ -455,6 +538,45 @@ useEffect(() => {
                         </td>
                         <td style={styles.tableCell}>{race.venue}</td>
                         <td style={styles.tableCell}>{race.name}</td>
+                        <td style={styles.tableCell}>
+                          {formData[race.id]?.isCDWinner ? (
+                            <span
+                              style={{
+                                backgroundColor: "#d1e7dd",
+                                color: "#0f5132",
+                                padding: "4px 8px",
+                                borderRadius: "6px",
+                                fontSize: "0.8rem",
+                                fontWeight: "bold",
+                                border: "1px solid #badbcc",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                            >
+                              🏆 C&D Winner ({formData[race.id].lastRace?.track} {formData[race.id].lastRace?.dist}m)
+                            </span>
+                          ) : formData[race.id]?.lastRace ? (
+                            <span
+                              style={{
+                                backgroundColor: "#f8f9fa",
+                                color: "#6c757d",
+                                padding: "3px 8px",
+                                borderRadius: "6px",
+                                fontSize: "0.75rem",
+                                border: "1px solid #e9ecef",
+                              }}
+                            >
+                              {formData[race.id].lastRace.pos === 1
+                                ? `Won (${formData[race.id].lastRace.track} ${formData[race.id].lastRace.dist}m)`
+                                : `${formData[race.id].lastRace.pos}th (${formData[race.id].lastRace.track} ${formData[race.id].lastRace.dist}m)`}
+                            </span>
+                          ) : formLoading ? (
+                            <span style={{ color: "#adb5bd", fontSize: "0.75rem", fontStyle: "italic" }}>loading...</span>
+                          ) : (
+                            <span style={{ color: "#ced4da" }}>-</span>
+                          )}
+                        </td>
                         <td style={styles.tableCell}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             <button

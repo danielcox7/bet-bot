@@ -24,3 +24,16 @@ export const getMarketBook = async (marketId) => {
   const data = await response.json();
   return data[0]; // listMarketBook returns an array; we want the first (and only) market
 };
+
+export const getGreyhoundForm = async (races) => {
+  const response = await fetch("/api/get-greyhound-form", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ races }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to fetch form data");
+  }
+  return response.json();
+};

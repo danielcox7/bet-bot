@@ -102,6 +102,40 @@ const handleAutoLayEnabledToggle = (val) => {
       console.error("Error saving Trap 1 CD toggle:", e);
     }
   };
+
+  const [showTrap1WonOnly, setShowTrap1WonOnly] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("betbot_show_trap1_won_only") || "false");
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const handleToggleTrap1Won = (val) => {
+    setShowTrap1WonOnly(val);
+    try {
+      localStorage.setItem("betbot_show_trap1_won_only", JSON.stringify(val));
+    } catch (e) {
+      console.error("Error saving Trap 1 Won toggle:", e);
+    }
+  };
+
+  const [showCoreStrategyOnly, setShowCoreStrategyOnly] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("betbot_show_core_strategy") || "false");
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const handleToggleCoreStrategy = (val) => {
+    setShowCoreStrategyOnly(val);
+    try {
+      localStorage.setItem("betbot_show_core_strategy", JSON.stringify(val));
+    } catch (e) {
+      console.error("Error saving Core Strategy toggle:", e);
+    }
+  };
   // Auto‑bet toggle state (persisted)
   const [autoBetEnabled, setAutoBetEnabled] = useState(() => {
     try {
@@ -273,9 +307,11 @@ const [selectedTrap, setSelectedTrap] = useState(() => {
         const racePayload = races
           .map((r) => {
             const trap1 = r.runners?.find((runner) => runner.runnerName.match(/^1\.\s/));
+            const trap2 = r.runners?.find((runner) => runner.runnerName.match(/^2\.\s/));
             return {
               id: r.id,
               trap1Dog: trap1?.runnerName || "",
+              trap2Dog: trap2?.runnerName || "",
               venue: r.venue,
               distance: r.distance || r.name,
             };
@@ -471,6 +507,54 @@ useEffect(() => {
               />
               🏆 Trap 1 C&D Winner {formLoading ? "(Loading...)" : ""}
             </label>
+            <label
+              style={{
+                ...styles.checkboxLabel,
+                backgroundColor: showTrap1WonOnly ? "#cff4fc" : "#fff",
+                color: showTrap1WonOnly ? "#055160" : "#333",
+                border: showTrap1WonOnly ? "1px solid #0dcaf0" : "1px solid #ccc",
+                borderRadius: "6px",
+                padding: "4px 10px",
+                cursor: "pointer",
+                fontWeight: "600",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showTrap1WonOnly}
+                onChange={(e) => handleToggleTrap1Won(e.target.checked)}
+                style={styles.checkbox}
+              />
+              🎯 Trap 1 Won Last {formLoading ? "(Loading...)" : ""}
+            </label>
+            <label
+              style={{
+                ...styles.checkboxLabel,
+                backgroundColor: showCoreStrategyOnly ? "#fff3cd" : "#fff",
+                color: showCoreStrategyOnly ? "#856404" : "#333",
+                border: showCoreStrategyOnly ? "1px solid #ffc107" : "1px solid #ccc",
+                borderRadius: "6px",
+                padding: "4px 10px",
+                cursor: "pointer",
+                fontWeight: "600",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showCoreStrategyOnly}
+                onChange={(e) => handleToggleCoreStrategy(e.target.checked)}
+                style={styles.checkbox}
+              />
+              ⚡ T1 Won + T2 &gt;4 {formLoading ? "(Loading...)" : ""}
+            </label>
           </div>
           {loading ? (
             <p style={styles.placeholderText}>
@@ -495,6 +579,8 @@ useEffect(() => {
                         if (selectedTrack !== "ALL" && race.venue !== selectedTrack) return false;
                         if (showQualifiedOnly && !qualifiedRaces.includes(race.id)) return false;
                         if (showTrap1CDOnly && !formData[race.id]?.isCDWinner) return false;
+                        if (showTrap1WonOnly && !formData[race.id]?.trap1Won) return false;
+                        if (showCoreStrategyOnly && !formData[race.id]?.qualifies) return false;
                         // time filter – exclude races that have already started/passed
                         const now = new Date();
                         const nowMins = now.getHours() * 60 + now.getMinutes();
